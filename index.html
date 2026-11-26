@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KoliLabel Pro v3 — Warehouse Scan & Print Station</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script>tailwind.config={theme:{extend:{fontFamily:{sans:['Barlow','sans-serif'],mono:['IBM Plex Mono','monospace']}}}}</script>
+<style>
+@media screen{
+:root{--ink:#14202B;--brand:#1F4FD8;--ok:#0E8A5F;--bg:#E9EDF1}
+body{background:var(--bg);color:var(--ink);font-size:15px;padding-bottom:44px}
+.card{background:#fff;border:1px solid #CBD3DB;border-radius:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:10px;border:1px solid #CBD3DB;background:#fff;font-weight:600;font-size:13px;color:var(--ink);transition:background .15s}
+.btn:hover{background:#F3F6F9}
+.btn-primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn-primary:hover{background:#1941B3}
+.btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}.btn-ok:hover{background:#0B7550}
+.btn-danger{color:#B42318}.btn-danger:hover{background:#FEF3F2}
+.field{width:100%;border:2px solid #CBD3DB;border-radius:10px;padding:10px 12px;background:#fff;outline:none}
+.field:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(31,79,216,.18)}
+.lbl{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#4A5967;margin-bottom:4px}
+.lbl small{font-weight:500;color:#7A8896}
+.scanfield{width:100%;font:700 24px 'IBM Plex Mono',monospace;padding:14px 16px;border-radius:12px;border:3px solid var(--brand);background:#fff;color:var(--ink);outline:none;text-transform:uppercase}
+.scanfield:focus{box-shadow:0 0 0 4px rgba(31,79,216,.4)}
+.scanqty{width:100%;text-align:center;font:700 22px 'IBM Plex Mono',monospace;border-radius:12px;border:3px solid #4A5C6E;background:#fff;color:var(--ink);outline:none}
+kbd{font:600 11px 'IBM Plex Mono',monospace;background:#EEF1F4;border:1px solid #CBD3DB;border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--ink)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+}
+@media print{
+  body > *:not(#print-root){display:none!important}
+  #print-root{display:block!important;width:var(--lw,94mm);margin:0;padding:0;background:#fff;color:#000}
+  #print-root .pg{break-after:page;page-break-after:always}
+  #print-root .pg:last-child{break-after:auto;page-break-after:auto}
+  html.rot90 #print-root, html.rot270 #print-root{width:var(--pgw)}
+  html.rot90 #print-root .pg, html.rot270 #print-root .pg{position:relative;width:var(--pgw);height:var(--pgh);overflow:hidden}
+  html.rot90 #print-root .pg .lbl-page, html.rot270 #print-root .pg .lbl-page{position:absolute;left:0;top:0;transform-origin:0 0}
+  html.rot90 #print-root .pg .lbl-page{transform:translateX(var(--rx)) rotate(90deg)}
+  html.rot270 #print-root .pg .lbl-page{transform:translateY(var(--ry)) rotate(-90deg)}
+}
+.lbl-page{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;background:#fff;color:#000;border:2px solid #000;padding:5px 7px;break-inside:avoid;display:flex;flex-direction:column;height:var(--lh,95mm);overflow:hidden}
+#measure-box .lbl-page{height:auto!important}
+#print-area .lbl-page{width:var(--lw,66mm);max-width:100%;margin:0 auto 12px}
+#print-root .lbl-page{width:var(--lw,94mm);margin:0}
+</style>
+</head>
+<body class="font-sans antialiased">
+
+<header class="bg-white border-b border-slate-300 sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg grid place-items-center text-white font-extrabold text-xl" style="background:var(--ink)">K</div>
+      <div>
+        <h1 class="font-extrabold text-lg leading-none tracking-tight">KoliLabel Pro</h1>
+        <div class="text-xs text-slate-500 mt-1 flex gap-3"><span id="cloud-status" onclick="window.cloudTest && cloudTest()" title="Klik untuk tes koneksi Firebase" class="text-slate-400 font-medium cursor-pointer">● Lokal</span><span id="clock-display" class="font-mono">--</span></div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button class="btn" onclick="toggleSound()" title="Suara scan"><span id="sound-icon">🔊</span></button>
+      <button class="btn" onclick="openModal('modal-master')">Master <b id="master-count" class="font-mono">0</b></button>
+      <button class="btn" onclick="openModal('modal-history')">Riwayat</button>
+      <label class="btn cursor-pointer">Import package list<input type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="handlePackageImport(event)" /></label>
+      <button class="btn btn-ok" onclick="exportEndOfShiftExcel()">Export akhir shift</button>
+      <button class="btn btn-danger" onclick="openModal('modal-reset')" title="Arsipkan shift ini">Reset shift</button>
+    </div>
+  </div>
+</header>
+
+<footer class="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-300 px-4 py-2 text-xs text-slate-600 flex flex-wrap gap-x-5 gap-y-1 justify-center">
+  <span><kbd>F2</kbd> Cetak & koli baru</span><span><kbd>F3</kbd> Ganti SO</span><span><kbd>Ctrl</kbd> + <kbd>P</kbd> Cetak koli ini</span><span><kbd>Ctrl</kbd> + <kbd>Z</kbd> Urungkan</span><span><kbd>Esc</kbd> Kembali ke scan</span>
+</footer>
+
+<div id="toast-container" class="fixed bottom-14 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-4 sm:px-0"></div>
+
+<main class="max-w-7xl mx-auto px-3 sm:px-6 py-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+<div class="lg:col-span-7 flex flex-col gap-4">
+
+  <!-- SO & KOLI -->
+  <section class="card p-4">
+    <div class="grid grid-cols-12 gap-3 items-end">
+      <div class="col-span-12 sm:col-span-6">
+        <label class="lbl">SO aktif <small>F3 untuk ganti</small></label>
+        <input type="text" id="input-so" list="so-datalist" placeholder="Scan nomor SO..." onfocus="this.select()"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();if(this.value.trim())switchSO(this.value)}else if(event.key==='Escape'){focusScanner()}"
+          class="field font-mono text-xl font-bold uppercase" />
+        <datalist id="so-datalist"></datalist>
+      </div>
+      <div class="col-span-6 sm:col-span-3">
+        <label class="lbl">Koli</label>
+        <div class="flex">
+          <button type="button" onclick="setActiveKoli(activeKoli-1)" class="btn" style="border-radius:10px 0 0 10px;height:50px;width:44px">−</button>
+          <input type="number" id="input-koli" min="1" value="1" onchange="setActiveKoli(this.value)" class="w-full text-center font-mono font-extrabold text-2xl border-y-2 border-slate-300 outline-none" />
+          <button type="button" onclick="setActiveKoli(activeKoli+1)" class="btn" style="border-radius:0 10px 10px 0;height:50px;width:44px">+</button>
+        </div>
+      </div>
+      <div class="col-span-6 sm:col-span-3">
+        <button type="button" onclick="printAndNext()" class="btn btn-primary w-full" style="height:50px;font-size:14px">Cetak & koli baru <kbd>F2</kbd></button>
+      </div>
+    </div>
+    <div id="so-chips" class="mt-3 flex flex-wrap gap-1.5"></div>
+    <div class="mt-3 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+      <span>Koli di SO ini <strong id="so-total-koli" class="font-mono text-slate-900">1</strong> &nbsp; Total pcs <strong id="so-total-pcs" class="font-mono text-slate-900">0</strong></span>
+      <div id="koli-status-badge"></div>
+    </div>
+  </section>
+
+  <!-- SCAN -->
+  <section class="rounded-2xl p-4 text-white" style="background:var(--ink)">
+    <div class="flex items-center justify-between mb-2.5">
+      <label for="input-scan-sku" class="font-bold text-base">Scan UPC / Ref / SKU</label>
+      <label class="text-xs text-slate-300 flex items-center gap-1.5 cursor-pointer select-none"><input type="checkbox" id="chk-remember" checked class="rounded" />Ingat pilihan UPC kembar</label>
+    </div>
+    <form onsubmit="handleScanSubmit(event)" class="grid grid-cols-12 gap-2.5">
+      <input type="text" id="input-scan-sku" autocomplete="off" placeholder="Arahkan scanner ke sini..." oninput="previewSku(this.value)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pendingChoice)handleScanSubmit(event)}" class="scanfield col-span-9" />
+      <input type="number" id="input-scan-qty" value="1" min="1" title="Jumlah per scan" aria-label="Jumlah per scan"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();if(!pendingChoice)handleScanSubmit(event)}" class="scanqty col-span-3" />
+    </form>
+    <div class="mt-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
+      <span id="sku-preview-name" class="font-semibold text-white truncate">Siap menerima scan</span>
+      <input type="text" id="input-manual-name" placeholder="Kode baru: ketik nama produk (opsional)" class="hidden w-full sm:w-72 text-sm rounded px-2 py-1 outline-none" style="color:#14202B" />
+    </div>
+    <div id="last-scan" class="hidden mt-3 rounded-lg px-3 py-2.5 flex items-center justify-between gap-2" style="background:#0E8A5F">
+      <span id="last-scan-text" class="font-bold text-sm truncate"></span>
+      <span class="flex gap-1.5 shrink-0">
+        <button type="button" id="btn-change-choice" onclick="forgetChoice()" class="hidden px-2.5 py-1 rounded bg-white/20 hover:bg-white/30 text-xs font-bold">Ganti pilihan</button>
+        <button type="button" onclick="undoLast()" class="px-2.5 py-1 rounded bg-white/20 hover:bg-white/30 text-xs font-bold">Urungkan</button>
+      </span>
+    </div>
+    <p class="text-xs text-slate-400 mt-2.5">Ketik <span class="font-mono text-slate-200">12*kode</span> untuk qty 12 sekaligus.</p>
+  </section>
+
+  <!-- ITEMS -->
+  <section class="card overflow-hidden">
+    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+      <h2 class="font-bold text-sm">Isi Koli #<span id="table-koli-num" class="font-mono text-amber-600">1</span> | <span id="table-so-num" class="font-mono text-xs text-slate-600">-</span></h2>
+      <span class="text-xs font-semibold text-slate-600"><b id="active-koli-sku-count" class="font-mono">0</b> Ref • <b id="active-koli-qty-count" class="font-mono">0</b> Pcs</span>
+    </div>
+    <div class="overflow-x-auto max-h-[340px]">
+      <table class="w-full text-left text-sm">
+        <thead><tr class="bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
+          <th class="py-2.5 px-3 w-10 text-center">No</th><th class="py-2.5 px-3 w-36">Ref</th><th class="py-2.5 px-3">Produk Name</th>
+          <th class="py-2.5 px-3 w-36 text-center">Qty (Pcs)</th><th class="py-2.5 px-3 w-12"></th></tr></thead>
+        <tbody id="active-koli-tbody" class="divide-y divide-slate-200"></tbody>
+      </table>
+    </div>
+    <div class="p-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
+      <div class="text-xs text-slate-300"><kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded font-mono text-amber-400">Ctrl+P</kbd> cetak • <kbd class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded font-mono text-amber-400">F2</kbd> cetak & koli baru</div>
+      <button type="button" onclick="printActiveKoliLabel()" class="btn btn-primary w-full sm:w-auto" style="padding:12px 24px;font-size:14px">Cetak label koli #<span id="btn-print-koli-num" class="font-mono">1</span></button>
+    </div>
+  </section>
+</div>
+
+<!-- RIGHT -->
+<div class="lg:col-span-5 flex flex-col gap-4">
+  <section class="card p-4">
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Preview Label Thermal</span>
+      <div class="flex gap-1">
+        <button type="button" id="btn-lay-land" onclick="setLabelSize('land')" title="10 x 7 cm (lebar x tinggi)" class="px-2 py-1 text-[11px] font-bold rounded">Landscape 10×7</button>
+        <button type="button" id="btn-lay-port" onclick="setLabelSize('port')" title="7 x 10 cm (lebar x tinggi)" class="px-2 py-1 text-[11px] font-bold rounded">Portrait 7×10</button>
+        <button type="button" onclick="presetZebra()" title="Portrait 7 x 10 cm, ukuran kertas dikirim dari aplikasi, tanpa rotasi" class="px-2 py-1 text-[11px] font-bold rounded bg-amber-500 text-slate-950 hover:bg-amber-400">⚡ Preset Zebra 7×10</button>
+        <button type="button" id="btn-rot" onclick="cycleRotate()" title="Putar isi label jika hasil cetak terbalik/miring dari driver Zebra" class="px-2 py-1 text-[11px] font-bold rounded">⟳ Putar: 0°</button>
+        <button type="button" id="btn-force" onclick="toggleForce()" title="Matikan agar ukuran kertas & orientasi ditentukan dialog print / driver Zebra" class="px-2 py-1 text-[11px] font-bold rounded bg-slate-200 text-slate-700 hover:bg-slate-300">Kertas: dikirim app</button>
+      </div>
+    </div>
+    <div id="print-area" class="bg-slate-200/70 p-3 rounded-lg max-h-[560px] overflow-y-auto"></div>
+  </section>
+
+  <section class="card p-4 flex-1">
+    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3">Daftar Koli di SO Ini <span class="font-normal normal-case text-slate-400">(klik untuk edit / cetak ulang)</span></h3>
+    <div id="so-koli-list" class="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-1"></div>
+  </section>
+</div>
+</main>
+
+<!-- MODAL: PILIH UPC/SKU -->
+<div id="modal-choice" class="fixed inset-0 bg-slate-950/70 z-50 hidden items-center justify-center p-4">
+  <div class="bg-white rounded-xl border-2 border-amber-500 max-w-lg w-full shadow-2xl overflow-hidden">
+    <div class="px-5 py-3 bg-amber-500 text-slate-950">
+      <h3 class="font-extrabold text-sm">Kode <span id="choice-code" class="font-mono"></span> cocok dengan beberapa produk</h3>
+      <p class="text-[11px] font-medium">Tekan angka 1–9 atau klik pilihan. Esc = batal.</p>
+    </div>
+    <div id="choice-list" class="p-3 flex flex-col gap-2 max-h-[60vh] overflow-y-auto"></div>
+  </div>
+</div>
+
+<!-- MODAL: MASTER -->
+<div id="modal-master" class="fixed inset-0 bg-slate-950/60 z-40 hidden items-center justify-center p-4">
+  <div class="bg-white rounded-xl border border-slate-300 max-w-3xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+    <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+      <h3 class="font-bold text-sm">Master UPC / SKU / Ref</h3>
+      <button onclick="closeModal('modal-master')" class="text-slate-400 hover:text-white font-bold text-lg">&times;</button>
+    </div>
+    <div class="p-4 border-b border-slate-200 bg-slate-50 flex flex-col gap-2.5">
+      <div class="flex flex-wrap gap-2 items-center">
+        <label class="cursor-pointer px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold">📥 Upload Master (Excel/CSV)
+          <input type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleMasterImport(event,'merge')" /></label>
+        <label class="cursor-pointer px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold" title="Hapus master lama, ganti dengan file baru">♻️ Upload & Ganti Semua
+          <input type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleMasterImport(event,'replace')" /></label>
+        <button onclick="downloadMasterTemplate()" class="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs font-bold">📄 Template</button>
+        <button onclick="exportMaster()" class="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs font-bold">📤 Export Master</button>
+      </div>
+      <p class="text-[11px] text-slate-500 leading-relaxed">Upload file master (format sama seperti <b>Template Master UOM</b>). Yang dipakai: <b>UPC</b>, <b>sku</b>, <b>ref</b> (internal ref → tampil di label sebagai SKU) dan <b>Product Name</b>; kolom lain (Brand, UOM, karton) diabaikan. Nilai "tidak ada" dianggap kosong. Satu UPC boleh dipakai banyak ref (mis. varian -NEX) → saat scan muncul pilihan. Scan juga bisa memakai ref atau sku.</p>
+      <form onsubmit="addMasterManual(event)" class="grid grid-cols-12 gap-2">
+        <input id="nm-ref" required placeholder="Ref internal" class="col-span-3 font-mono text-xs uppercase border border-slate-300 rounded-lg px-2 py-2 outline-none" />
+        <input id="nm-upc" placeholder="UPC" class="col-span-3 font-mono text-xs uppercase border border-slate-300 rounded-lg px-2 py-2 outline-none" />
+        <input id="nm-sku" placeholder="SKU (MTA-...)" class="col-span-2 font-mono text-xs uppercase border border-slate-300 rounded-lg px-2 py-2 outline-none" />
+        <input id="nm-name" required placeholder="Nama Produk" class="col-span-3 text-xs border border-slate-300 rounded-lg px-2 py-2 outline-none" />
+        <button class="col-span-1 bg-slate-900 text-white font-bold text-xs rounded-lg">+</button>
+      </form>
+      <input id="search-master-input" oninput="renderMasterTable()" placeholder="Cari SKU / UPC / Nama..." class="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 outline-none" />
+    </div>
+    <div class="overflow-y-auto flex-1">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-100 sticky top-0 font-bold text-slate-600"><tr><th class="py-2 px-3">Ref</th><th class="py-2 px-3">UPC</th><th class="py-2 px-3">SKU</th><th class="py-2 px-3">Produk</th><th class="py-2 px-3 w-10"></th></tr></thead>
+        <tbody id="master-sku-tbody" class="divide-y divide-slate-200"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: RIWAYAT -->
+<div id="modal-history" class="fixed inset-0 bg-slate-950/60 z-40 hidden items-center justify-center p-3">
+  <div class="bg-white rounded-xl border border-slate-300 max-w-5xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+      <h3 class="font-bold text-sm">🕘 Riwayat Koli & Label</h3>
+      <button onclick="closeModal('modal-history')" class="text-slate-400 hover:text-white font-bold text-lg">&times;</button>
+    </div>
+    <div class="p-3 border-b border-slate-200 bg-slate-50 grid grid-cols-2 sm:grid-cols-12 gap-2">
+      <input id="hist-q" oninput="renderHistory()" placeholder="Cari SO / Ref / Nama produk..." class="col-span-2 sm:col-span-4 text-xs border border-slate-300 rounded-lg px-3 py-2 outline-none focus:border-slate-900" />
+      <select id="hist-status" onchange="renderHistory()" class="sm:col-span-2 text-xs border border-slate-300 rounded-lg px-2 py-2"><option value="">Semua status</option><option value="printed">Sudah dicetak</option><option value="draft">Belum dicetak</option></select>
+      <select id="hist-scope" onchange="renderHistory()" class="sm:col-span-2 text-xs border border-slate-300 rounded-lg px-2 py-2"><option value="">Semua data</option><option value="live">Shift aktif</option><option value="arch">Arsip</option></select>
+      <input id="hist-date" type="date" onchange="renderHistory()" class="sm:col-span-2 text-xs border border-slate-300 rounded-lg px-2 py-2" />
+      <button onclick="exportHistory()" class="sm:col-span-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg py-2">📤 Export</button>
+    </div>
+    <div id="hist-summary" class="px-4 py-2 text-[11px] text-slate-500 border-b border-slate-100"></div>
+    <div id="hist-list" class="overflow-y-auto flex-1 divide-y divide-slate-200"></div>
+  </div>
+</div>
+
+<!-- MODAL: RESET -->
+<div id="modal-reset" class="fixed inset-0 bg-slate-950/60 z-40 hidden items-center justify-center p-4">
+  <div class="bg-white rounded-xl max-w-md w-full p-5 shadow-2xl">
+    <h3 class="font-bold text-base mb-1">Reset Data Transaksi Shift?</h3>
+    <p class="text-xs text-slate-600 mb-4">Data shift dipindahkan ke <strong>Riwayat</strong> (arsip), tidak dihapus. Master tetap tersimpan.</p>
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal('modal-reset')" class="px-4 py-2 rounded-lg bg-slate-100 text-xs font-bold">Batal</button>
+      <button onclick="confirmResetShiftData()" class="px-4 py-2 rounded-lg bg-rose-600 text-xs font-bold text-white">Ya, Arsipkan</button>
+    </div>
+  </div>
+</div>
+
+<div id="print-root" style="display:none"></div>
+<div id="measure-box" style="position:absolute;left:-9999px;top:0;visibility:hidden;width:94mm"></div>
+
+<script>
+/* ===================== STATE ===================== */
+const KEY = { REC:'wms_koli_records_v1', MASTER:'wms_master_v2', OLD_MASTER:'wms_master_sku_v1', ACTIVE:'wms_active_state_v1', SET:'wms_settings_v2' };
+let records = [], archiveList = [];
+let masterList = [];   // [{sku, upc, name, uom, conv}]
+let activeSO = '', activeKoli = 1, soundEnabled = true, labelSize = 'port';
+let lastAction = null, pendingChoice = null;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
+
+/* ===================== AUDIO ===================== */
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playBeep(type='success') {
+  if (!soundEnabled) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.connect(g); g.connect(audioCtx.destination);
+    const cfg = { success:['sine',1046.5,.09], print:['triangle',1318.5,.2], error:['sawtooth',220,.25], pick:['sine',784,.12] }[type];
+    o.type = cfg[0]; o.frequency.setValueAtTime(cfg[1], t);
+    g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + cfg[2]);
+    o.start(); o.stop(t + cfg[2]);
+  } catch {}
+}
+function toggleSound() { soundEnabled = !soundEnabled; $('sound-icon').textContent = soundEnabled ? '🔊' : '🔇'; save(); }
+
+/* ===================== INIT & STORAGE ===================== */
+function initApp() {
+  records = load(KEY.REC, []);
+  masterList = load(KEY.MASTER, null);
+  if (!masterList) {
+    const old = load(KEY.OLD_MASTER, {});   // migrasi master v1 {SKU: nama}
+    masterList = Object.entries(old).map(([sku, name]) => ({ ref: sku, sku:'', upc:'', name, uom:'PCS', conv:1 }));
+  }
+  masterList = masterList.map(m => m.ref ? m : { ...m, ref: m.sku, sku: '' });
+  archiveList = load('wms_archive_v1', []);
+  const a = load(KEY.ACTIVE, {}); activeSO = a.activeSO || ''; activeKoli = a.activeKoli || 1;
+  const s = load(KEY.SET, {}); soundEnabled = s.soundEnabled !== false; labelSize = LAYOUTS[s.labelSize] ? s.labelSize : 'port'; forcePage = s.labelSize === 'auto' ? false : s.forcePage !== false; rotDeg = [0, 90, 270].includes(s.rotDeg) ? s.rotDeg : 0;
+  $('sound-icon').textContent = soundEnabled ? '🔊' : '🔇';
+  $('input-so').value = activeSO; $('input-koli').value = activeKoli;
+  setLabelSize(labelSize, false);
+  updateClock(); setInterval(updateClock, 1000);
+  refreshUI(); activeSO ? focusScanner() : $('input-so').focus();
+  window.__appReady = true;
+}
+function save() {
+  localStorage.setItem(KEY.REC, JSON.stringify(records));
+  localStorage.setItem(KEY.MASTER, JSON.stringify(masterList));
+  localStorage.setItem(KEY.ACTIVE, JSON.stringify({ activeSO, activeKoli }));
+  localStorage.setItem(KEY.SET, JSON.stringify({ soundEnabled, labelSize, rotDeg, forcePage }));
+  localStorage.setItem('wms_archive_v1', JSON.stringify(archiveList));
+  if (window.CloudSync) window.CloudSync.schedule();
+}
+function updateClock() {
+  const n = new Date();
+  const d = n.toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const t = n.toLocaleTimeString('id-ID', { hour12:false });
+  $('clock-display').textContent = d + ' ' + t;
+}
+function focusScanner(force = true) { if (force) $('input-scan-sku').focus(); }
+
+/* ===================== MASTER LOOKUP ===================== */
+const norm = v => String(v ?? '').trim().toUpperCase();
+function findMatches(code) {
+  // prioritas: UPC -> Ref internal -> SKU (MTA-...). Varian -NEX tampil paling akhir.
+  let m = masterList.filter(x => x.upc && x.upc === code);
+  if (!m.length) m = masterList.filter(x => x.ref === code);
+  if (!m.length) m = masterList.filter(x => x.sku && x.sku === code);
+  return m.sort((a, b) => /-NEX$/i.test(a.ref) - /-NEX$/i.test(b.ref) || a.ref.localeCompare(b.ref));
+}
+function parseScan(raw) {
+  // format "12*KODE" => qty 12
+  const m = String(raw).trim().match(/^(\d+)\s*[*xX]\s*(.+)$/);
+  if (m) return { qty: parseInt(m[1], 10), code: norm(m[2]) };
+  return { qty: null, code: norm(raw) };
+}
+function previewSku(raw) {
+  const { code } = parseScan(raw), el = $('sku-preview-name'), man = $('input-manual-name');
+  if (!code) { el.textContent = 'Siap menerima scan...'; el.className = 'font-semibold text-white truncate'; man.classList.add('hidden'); return; }
+  const m = findMatches(code);
+  if (m.length === 1) { el.textContent = `${m[0].name} [${m[0].ref}]`; el.className = 'font-semibold text-emerald-300 truncate'; man.classList.add('hidden'); }
+  else if (m.length > 1) { el.textContent = `⚠ ${m.length} produk cocok — akan muncul pilihan`; el.className = 'font-semibold text-sky-300 truncate'; man.classList.add('hidden'); }
+  else { el.textContent = 'Kode baru (belum ada di Master)'; el.className = 'font-semibold text-amber-300 truncate'; man.classList.remove('hidden'); }
+}
+
+/* ===================== SO / KOLI ===================== */
+function handleSOChange(val) {
+  activeSO = norm(val) || '';
+  $('input-so').value = activeSO;
+  const rs = records.filter(r => r.so === activeSO);
+  activeKoli = rs.length ? Math.max(...rs.map(r => r.koli)) : 1;
+  $('input-koli').value = activeKoli;
+  save(); refreshUI(); focusScanner();
+}
+function setActiveKoli(v) {
+  const n = parseInt(v, 10);
+  activeKoli = isNaN(n) || n < 1 ? 1 : n;
+  $('input-koli').value = activeKoli; save(); refreshUI(); focusScanner();
+}
+function nextKoliNumber() {
+  const rs = records.filter(r => r.so === activeSO);
+  return (rs.length ? Math.max(...rs.map(r => r.koli), activeKoli) : activeKoli) + 1;
+}
+
+/* ===================== SCAN ===================== */
+function handleScanSubmit(e) {
+  e.preventDefault();
+  const { qty: inlineQty, code } = parseScan($('input-scan-sku').value);
+  if (!code) { playBeep('error'); toast('Scan atau ketik kode dulu!', 'error'); return; }
+  processScan(code, inlineQty || Math.max(1, parseInt($('input-scan-qty').value, 10) || 1));
+}
+/* Kolom SO terpisah dari kolom scan item agar tidak tertukar */
+let chipSOs = [];
+let choiceMem = load('wms_choice_mem_v1', {}), lastAuto = null;
+function switchSO(code) {
+  const pending = records.some(r => r.so === activeSO && r.koli === activeKoli && !r.printed);
+  const prev = activeSO, prevKoli = activeKoli;
+  handleSOChange(code);
+  $('input-scan-sku').value = ''; previewSku('');
+  playBeep('pick');
+  const warn = pending && prev && prev !== activeSO;
+  toast(`SO aktif: ${activeSO} • Koli #${activeKoli}` + (warn ? ` (Koli #${prevKoli} di ${prev} belum dicetak)` : ''), warn ? 'error' : 'info');
+}
+function processScan(code, qtyScans) {
+  const matches = findMatches(code);
+  if (!activeSO) { playBeep('error'); toast('Scan nomor SO dulu di kolom SO!', 'error'); $('input-scan-sku').value = ''; previewSku(''); $('input-so').focus(); return; }
+  if (matches.length === 1) return commitScan(matches[0], qtyScans);
+  if (matches.length > 1) {
+    const saved = $('chk-remember').checked && matches.find(m => m.ref === choiceMem[code]);
+    if (saved) return commitScan(saved, qtyScans, code);
+    playBeep('pick'); return openChoice(code, matches, qtyScans);
+  }
+  // Kode baru: pakai kode sebagai Ref, simpan ke master bila nama diisi
+  const name = $('input-manual-name').value.trim().toUpperCase();
+  const entry = { ref: code, sku: '', upc: /^\d{8,14}$/.test(code) ? code : '', name: name || `PRODUK (${code})`, uom: 'PCS', conv: 1 };
+  if (name) masterList.push(entry);
+  commitScan(entry, qtyScans);
+}
+function forgetChoice() {
+  if (!lastAuto) return;
+  const { code, scans } = lastAuto;
+  delete choiceMem[code]; localStorage.setItem('wms_choice_mem_v1', JSON.stringify(choiceMem));
+  undoLast(); processScan(code, scans);
+}
+
+function openChoice(code, matches, qty) {
+  pendingChoice = { code, matches, qty };
+  $('choice-code').textContent = code;
+  $('choice-list').innerHTML = matches.map((m, i) => `
+    <button type="button" onclick="pickChoice(${i})" class="text-left rounded-lg border-2 border-slate-200 hover:border-amber-500 hover:bg-amber-50 p-2.5 flex items-center gap-3">
+      <span class="w-8 h-8 rounded bg-slate-900 text-amber-400 font-mono font-extrabold flex items-center justify-center shrink-0">${i + 1}</span>
+      <span class="min-w-0"><span class="block text-xs font-bold text-slate-900">${esc(m.name)}</span>
+      <span class="block text-[12px] font-mono text-slate-700">Ref <b class="text-slate-950">${esc(m.ref)}</b></span>
+      <span class="block text-[11px] font-mono text-slate-500">UPC ${esc(m.upc || '-')} • SKU ${esc(m.sku || '-')}</span></span>
+    </button>`).join('');
+  $('modal-choice').classList.remove('hidden'); $('modal-choice').classList.add('flex');
+}
+function pickChoice(i) {
+  if (!pendingChoice) return;
+  const { code, matches, qty } = pendingChoice; pendingChoice = null;
+  choiceMem[code] = matches[i].ref; localStorage.setItem('wms_choice_mem_v1', JSON.stringify(choiceMem));
+  closeChoice(); commitScan(matches[i], qty);
+}
+function closeChoice() {
+  pendingChoice = null;
+  $('modal-choice').classList.add('hidden'); $('modal-choice').classList.remove('flex'); focusScanner();
+}
+
+function commitScan(m, scans, autoCode = null) {
+  const pcs = scans * (m.conv || 1);
+  const idx = records.findIndex(r => r.so === activeSO && r.koli === activeKoli && r.sku === m.ref);
+  if (idx > -1) {
+    lastAction = { id: records[idx].id, prevQty: records[idx].qty, prevPrinted: records[idx].printed, isNew: false };
+    records[idx].qty += pcs; records[idx].printed = false;
+  } else {
+    const id = 'i_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    records.push({ id, so: activeSO, koli: activeKoli, sku: m.ref, productName: m.name, qty: pcs, printed: false, printedAt: null, createdAt: Date.now() });
+    lastAction = { id, isNew: true };
+  }
+  const total = records.find(r => r.id === lastAction.id).qty;
+  lastAuto = autoCode ? { code: autoCode, scans } : null;
+  $('btn-change-choice').classList.toggle('hidden', !autoCode);
+  $('last-scan').classList.remove('hidden');
+  $('last-scan-text').textContent = `✓ ${m.ref} • ${m.name} • +${pcs} pcs → total ${total}` + (autoCode ? ' (pilihan tersimpan)' : '');
+  playBeep('success');
+  $('input-scan-sku').value = ''; $('input-scan-qty').value = '1'; $('input-manual-name').value = '';
+  previewSku(''); save(); refreshUI(); focusScanner();
+}
+
+function undoLast() {
+  if (!lastAction) return;
+  if (lastAction.isNew) records = records.filter(r => r.id !== lastAction.id);
+  else { const r = records.find(x => x.id === lastAction.id); if (r) { r.qty = lastAction.prevQty; r.printed = lastAction.prevPrinted; } }
+  lastAction = null; $('last-scan').classList.add('hidden');
+  save(); refreshUI(); toast('Scan terakhir dibatalkan', 'info'); focusScanner();
+}
+function updateItemQty(id, d) {
+  const r = records.find(x => x.id === id); if (!r) return;
+  if (r.qty + d <= 0) return deleteItem(id);
+  r.qty += d; r.printed = false; save(); refreshUI(); focusScanner();
+}
+function setItemQtyDirect(id, v) {
+  const n = parseInt(v, 10);
+  if (isNaN(n) || n <= 0) return deleteItem(id);
+  const r = records.find(x => x.id === id); r.qty = n; r.printed = false; save(); refreshUI(); focusScanner();
+}
+function deleteItem(id) { records = records.filter(r => r.id !== id); save(); refreshUI(); focusScanner(); }
+
+/* ===================== PRINT ===================== */
+const LAYOUTS = {
+  land: { w: 96, h: 66, page: 'size:100mm 70mm;margin:2mm', pageRot: 'size:70mm 100mm;margin:2mm' },
+  port: { w: 66, h: 96, page: 'size:70mm 100mm;margin:2mm', pageRot: 'size:100mm 70mm;margin:2mm' }
+};
+let LAY = LAYOUTS.port, rotDeg = 0, forcePage = true;
+function presetZebra() { rotDeg = 0; forcePage = true; setLabelSize('port'); toast('Preset: portrait 7×10 cm, ukuran kertas dikirim dari aplikasi', 'info'); focusScanner(); }
+function toggleForce() { forcePage = !forcePage; applyPageStyle(); save(); toast(forcePage ? 'Ukuran kertas dikirim dari aplikasi' : 'Ukuran kertas & orientasi: atur di dialog print / driver', 'info'); focusScanner(); }
+function cycleRotate() { rotDeg = rotDeg === 0 ? 90 : rotDeg === 90 ? 270 : 0; applyPageStyle(); save(); toast(`Putar isi label: ${rotDeg}° (cek preview di dialog print)`, 'info'); focusScanner(); }
+function setLabelSize(size, doSave = true) {
+  labelSize = LAYOUTS[size] ? size : 'land'; LAY = LAYOUTS[labelSize]; applyPageStyle();
+  const on = 'px-2 py-1 text-[11px] font-bold rounded bg-slate-900 text-white', off = 'px-2 py-1 text-[11px] font-bold rounded bg-slate-200 text-slate-700 hover:bg-slate-300';
+  ['land', 'port'].forEach(k => $('btn-lay-' + k).className = k === labelSize ? on : off);
+  if (doSave) { save(); refreshUI(); }
+}
+/* 1 koli = 1 label = 1 halaman: ukuran kertas diset sesuai label & isi otomatis diperkecil bila panjang */
+function applyPageStyle() {
+  let st = $('page-style');
+  if (!st) { st = document.createElement('style'); st.id = 'page-style'; document.head.appendChild(st); }
+  st.textContent = '@page{' + (forcePage ? (rotDeg ? LAY.pageRot : LAY.page) : 'margin:2mm') + '}';
+  if ($('btn-force')) $('btn-force').textContent = forcePage ? 'Kertas: dikirim app' : 'Kertas: ikut dialog/driver';
+  const root = document.documentElement;
+  root.classList.remove('rot90', 'rot270'); if (rotDeg) root.classList.add('rot' + rotDeg);
+  root.style.setProperty('--lw', LAY.w + 'mm'); root.style.setProperty('--lh', (LAY.h - 1) + 'mm');
+  root.style.setProperty('--pgw', LAY.h + 'mm'); root.style.setProperty('--pgh', LAY.w + 'mm');
+  root.style.setProperty('--rx', LAY.h + 'mm'); root.style.setProperty('--ry', LAY.w + 'mm');
+  if ($('btn-rot')) $('btn-rot').textContent = '⟳ Putar: ' + rotDeg + '°';
+}
+const MM = 96 / 25.4;
+/* Label 100x70mm (area cetak 94x64mm): isi dipecah otomatis ke beberapa lembar bila kepanjangan.
+   Header sama di tiap lembar; total item & qty hanya di lembar terakhir. */
+function labelPageHtml(rows, startNo, pageNo, nPages, last, tot) {
+  const d = new Date();
+  const dt = d.toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric' }) + ' ' + d.toLocaleTimeString('id-ID', { hour12:false }).slice(0, 5);
+  const body = rows.length ? rows.map((it, i) => `<tr style="vertical-align:top"><td class="py-px pr-1 font-mono">${startNo + i}</td><td class="py-px px-1 font-mono font-bold break-all">${esc(it.sku)}</td><td class="py-px px-1" style="line-height:1.15">${esc(it.productName)}</td><td class="py-px pl-1 text-right font-mono font-bold">${it.qty}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="py-4 text-center italic" style="color:#999">Koli kosong</td></tr>';
+  return `<div class="lbl-page">
+    <div class="border-b-2 border-black pb-1 mb-1 flex items-center justify-between gap-2">
+      <div class="min-w-0"><div class="font-mono font-extrabold text-sm leading-tight break-all">${esc(activeSO || 'NO-SO')}</div>
+        <div class="font-mono text-[9px] leading-tight" style="color:#333">${dt}${nPages > 1 ? ` • Hal ${pageNo}/${nPages}` : ''}</div></div>
+      <div class="px-2 py-0.5 text-center shrink-0 flex items-center gap-1.5" style="border:3px solid #000;background:#fff;color:#000"><span class="text-[9px] font-bold uppercase" style="color:#000">KOLI</span><span class="font-mono font-extrabold text-2xl leading-none" style="color:#000">${activeKoli}</span></div>
+    </div>
+    <table class="w-full text-left text-[10px]" style="border-collapse:collapse">
+      <thead><tr class="border-b border-black font-bold uppercase" style="font-size:9px"><th class="pb-px pr-1 w-5">No</th><th class="pb-px px-1 w-24">REF</th><th class="pb-px px-1">Produk Name</th><th class="pb-px pl-1 w-8 text-right">Qty</th></tr></thead>
+      <tbody>${body}</tbody></table>
+    <div style="flex:1 1 auto"></div>
+    ${last ? `<div class="mt-1 pt-1 border-t-2 border-black flex items-center justify-between font-mono text-[11px] font-extrabold"><span>TOTAL: ${tot.n} ITEM</span><span class="text-xs">QTY: ${tot.q} PCS</span></div>` : ''}
+  </div>`;
+}
+function computePages(items, tot) {
+  const probe = $('measure-box'), maxH = (LAY.h - 1) * MM;
+  probe.style.width = LAY.w + 'mm';
+  const h = (rows, last) => { probe.innerHTML = labelPageHtml(rows, 1, 1, 2, last, tot); return probe.firstElementChild.getBoundingClientRect().height; };
+  const pages = []; let cur = [];
+  items.forEach(it => {
+    if (cur.length && h([...cur, it], false) > maxH) { pages.push(cur); cur = []; }
+    cur.push(it);
+  });
+  if (cur.length > 1 && h(cur, true) > maxH) { pages.push(cur.slice(0, -1)); cur = cur.slice(-1); }   // footer harus muat di lembar terakhir
+  pages.push(cur);
+  probe.innerHTML = '';
+  return pages;
+}
+function renderLabels(items, pcs) {
+  const tot = { n: items.length, q: pcs };
+  const pages = computePages(items, tot);
+  let no = 1;
+  const html = pages.map((rows, i) => { const t = labelPageHtml(rows, no, i + 1, pages.length, i === pages.length - 1, tot); no += rows.length; return t; }).join('<!--pg-->');
+  $('print-area').innerHTML = html;
+  $('print-root').innerHTML = pages.map((_, i) => `<div class="pg">${html.split('<!--pg-->')[i]}</div>`).join('');
+}
+function printActiveKoliLabel(then) {
+  const items = records.filter(r => r.so === activeSO && r.koli === activeKoli);
+  if (!items.length) { playBeep('error'); toast(`Koli #${activeKoli} masih kosong!`, 'error'); focusScanner(); return false; }
+  const now = new Date().toLocaleString('id-ID');
+  items.forEach(r => { r.printed = true; r.printedAt = now; r.printedTs = Date.now(); r.printCount = (r.printCount || 0) + 1; });
+  save(); refreshUI(); playBeep('print');
+  setTimeout(() => { window.print(); if (then) then(); focusScanner(); }, 120);
+  return true;
+}
+function printAndNext() {
+  const items = records.filter(r => r.so === activeSO && r.koli === activeKoli);
+  if (!items.length) { setActiveKoli(activeKoli); return toast('Koli ini masih kosong', 'error'); }
+  const next = nextKoliNumber();
+  printActiveKoliLabel(() => { setActiveKoli(next); toast(`Lanjut ke Koli #${next}`, 'info'); });
+}
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); printActiveKoliLabel(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !['input-so','nm-ref','nm-upc','nm-sku','nm-name'].includes(document.activeElement.id)) { e.preventDefault(); undoLast(); }
+  else if (e.key === 'F2') { e.preventDefault(); printAndNext(); }
+  else if (e.key === 'F3') { e.preventDefault(); const el = $('input-so'); el.focus(); el.select(); }
+  else if (pendingChoice) {
+    if (e.key === 'Escape') closeChoice();
+    else if (e.key === 'Enter') { e.preventDefault(); pickChoice(0); }
+    else if (/^[1-9]$/.test(e.key) && +e.key <= pendingChoice.matches.length) { e.preventDefault(); pickChoice(+e.key - 1); }
+  }
+});
+
+/* ===================== RENDER ===================== */
+function refreshUI() {
+  $('so-datalist').innerHTML = [...new Set(records.map(r => r.so))].map(s => `<option value="${esc(s)}">`).join('');
+  const so = records.filter(r => r.so === activeSO);
+  const maxKoli = so.length ? Math.max(...so.map(r => r.koli), activeKoli) : activeKoli;
+  $('so-total-koli').textContent = maxKoli;
+  $('so-total-pcs').textContent = so.reduce((s, r) => s + r.qty, 0);
+  $('master-count').textContent = masterList.length;
+  chipSOs = []; for (let i = records.length - 1; i >= 0 && chipSOs.length < 8; i--) if (!chipSOs.includes(records[i].so)) chipSOs.push(records[i].so);
+  if (activeSO && !chipSOs.includes(activeSO)) chipSOs.unshift(activeSO);
+  $('so-chips').innerHTML = chipSOs.map((so, i) => {
+    const pend = records.some(r => r.so === so && !r.printed), cur = so === activeSO;
+    return `<button type="button" onclick="switchSO(chipSOs[${i}])" class="px-2.5 py-1 rounded-full border text-[11px] font-mono font-bold ${cur ? 'bg-slate-900 text-amber-400 border-slate-900' : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'}">${esc(so)}${pend ? ' <span class="text-amber-500">●</span>' : ''}</button>`;
+  }).join('');
+
+  const items = so.filter(r => r.koli === activeKoli), pcs = items.reduce((s, r) => s + r.qty, 0);
+  $('table-koli-num').textContent = activeKoli; $('table-so-num').textContent = activeSO || '-';
+  $('btn-print-koli-num').textContent = activeKoli;
+  $('active-koli-sku-count').textContent = items.length; $('active-koli-qty-count').textContent = pcs;
+  $('koli-status-badge').innerHTML = !items.length ? '<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold">Kosong</span>'
+    : items.every(i => i.printed) ? '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">✓ Sudah Cetak</span>'
+    : '<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">● Belum Dicetak</span>';
+
+  $('active-koli-tbody').innerHTML = !items.length
+    ? `<tr><td colspan="5" class="py-10 text-center text-slate-400 text-xs">${activeSO ? `Belum ada item di Koli #${activeKoli}. Scan di kolom kuning.` : 'Isi Nomor SO terlebih dahulu.'}</td></tr>`
+    : items.map((it, i) => `<tr class="hover:bg-slate-50">
+        <td class="py-2.5 px-3 text-center font-mono text-xs text-slate-500">${i + 1}</td>
+        <td class="py-3 px-3 font-mono font-bold text-sm">${esc(it.sku)}</td>
+        <td class="py-3 px-3 text-sm font-medium">${esc(it.productName)}</td>
+        <td class="py-2.5 px-3"><div class="flex items-center justify-center gap-1">
+          <button onclick="updateItemQty('${it.id}',-1)" class="w-8 h-8 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold">-</button>
+          <input type="number" value="${it.qty}" min="1" onchange="setItemQtyDirect('${it.id}',this.value)" class="w-16 text-center font-mono font-bold text-sm border-2 border-slate-300 rounded-lg py-1" />
+          <button onclick="updateItemQty('${it.id}',1)" class="w-8 h-8 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold">+</button></div></td>
+        <td class="py-2.5 px-3 text-center"><button onclick="deleteItem('${it.id}')" class="text-rose-500 hover:text-rose-700 font-bold text-xs">✕</button></td></tr>`).join('');
+
+  renderLabels(items, pcs);
+  renderKoliList(so);
+}
+function renderKoliList(so) {
+  const g = {};
+  so.forEach(r => { (g[r.koli] ??= { koli: r.koli, n: 0, pcs: 0, all: true }); g[r.koli].n++; g[r.koli].pcs += r.qty; if (!r.printed) g[r.koli].all = false; });
+  if (!g[activeKoli]) g[activeKoli] = { koli: activeKoli, n: 0, pcs: 0, all: false };
+  $('so-koli-list').innerHTML = Object.values(g).sort((a, b) => a.koli - b.koli).map(k => {
+    const cur = k.koli === activeKoli;
+    const st = !k.n ? '<span class="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-semibold">Kosong</span>'
+      : k.all ? '<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">✓ Printed</span>'
+      : '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">Draft</span>';
+    return `<div onclick="setActiveKoli(${k.koli})" class="cursor-pointer rounded-lg border p-2.5 flex items-center justify-between gap-2 ${cur ? 'border-amber-500 bg-amber-50/70 ring-1 ring-amber-400' : 'border-slate-200 hover:bg-slate-50'}">
+      <div class="flex items-center gap-2.5"><div class="w-9 h-9 rounded-lg ${cur ? 'bg-slate-900 text-amber-400' : 'bg-slate-100 text-slate-700'} font-mono font-extrabold text-sm flex items-center justify-center">#${k.koli}</div>
+      <div><div class="text-xs font-bold flex items-center gap-2">Koli ${k.koli} ${st}</div><div class="text-[11px] text-slate-500 font-mono">${k.n} Ref • ${k.pcs} Pcs</div></div></div>
+      <button type="button" onclick="event.stopPropagation();setActiveKoli(${k.koli});printActiveKoliLabel();" class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold">🖨️ Print</button></div>`;
+  }).join('');
+}
+
+/* ===================== EXCEL HELPERS ===================== */
+function colFinder(row) {
+  const keys = Object.keys(row);
+  return c => { const k = keys.find(k => c.includes(k.trim().toLowerCase())); return k ? row[k] : ''; };
+}
+function readExcel(file, cb) {
+  const fr = new FileReader();
+  fr.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      cb(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }));
+    } catch (err) { console.error(err); playBeep('error'); toast('Gagal membaca file. Cek format kolom.', 'error'); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+/* ---- Master upload ---- */
+function handleMasterImport(ev, mode) {
+  const file = ev.target.files[0]; if (!file) return;
+  readExcel(file, rows => {
+    const incoming = [];
+    rows.forEach(row => {
+      const f = colFinder(row);
+      const clean = v => { const x = norm(v); return x === 'TIDAK ADA' || x === '-' ? '' : x; };
+      let ref = clean(f(['ref', 'internal ref', 'ref internal', 'kode internal', 'internal reference']));
+      let sku = clean(f(['sku', 'kode sku', 'kode barang', 'item code']));
+      const upc = clean(f(['upc', 'barcode', 'ean', 'gtin', 'kode upc']));
+      if (!ref) { ref = sku; sku = ''; }   // file tanpa kolom ref: SKU dianggap ref internal
+      const name = String(f(['produk name', 'product name', 'nama produk', 'produk', 'deskripsi', 'description', 'name'])).trim().toUpperCase();
+      if (ref) incoming.push({ ref, sku, upc, name: name || `PRODUK (${ref})`, uom: 'PCS', conv: 1 });
+    });
+    if (!incoming.length) { playBeep('error'); return toast('Tidak ada data master terbaca (cek header kolom)', 'error'); }
+    if (mode === 'replace') masterList = [];
+    let added = 0, updated = 0;
+    const idx = new Map(masterList.map((m, k) => [m.ref + '|' + m.upc, k]));
+    incoming.forEach(n => {
+      const i = idx.get(n.ref + '|' + n.upc);
+      if (i !== undefined) { masterList[i] = n; updated++; } else { idx.set(n.ref + '|' + n.upc, masterList.push(n) - 1); added++; }
+    });
+    save(); renderMasterTable(); refreshUI(); playBeep('success');
+    toast(`Master: ${added} baru, ${updated} diperbarui`, 'success');
+  });
+  ev.target.value = '';
+}
+function downloadMasterTemplate() {
+  const ws = XLSX.utils.json_to_sheet([
+    { Brand: 'PURBASARI [PURBASARI]', UPC: '8999225906803', sku: 'MTA-185453220-00001', ref: '6C2CFFW11', 'Product Name': 'CLEAN FACE FACIAL WASH 130 ML' },
+    { Brand: 'PURBASARI [PURBASARI]', UPC: '8999225906803', sku: 'tidak ada', ref: '6C2CFFW11-NEX', 'Product Name': '[NEX]-CLEAN FACE FACIAL WASH 130 ML' }
+  ]);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Master UOM'); XLSX.writeFile(wb, 'Template_Master.xlsx');
+}
+function exportMaster() {
+  if (!masterList.length) return toast('Master masih kosong', 'error');
+  const ws = XLSX.utils.json_to_sheet(masterList.map(m => ({ UPC: m.upc, sku: m.sku, ref: m.ref, 'Product Name': m.name })));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Master'); XLSX.writeFile(wb, 'Master_SKU_Export.xlsx');
+}
+
+/* ---- Package list import (forward-fill SO/Koli) ---- */
+function handlePackageImport(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  readExcel(file, rows => {
+    let lastSO = '', lastKoli = 1, n = 0;
+    rows.forEach(row => {
+      const f = colFinder(row);
+      const so = norm(f(['so', 'no so', 'no. so', 'nomor so']));
+      const code = norm(f(['ref', 'internal ref', 'sku', 'kode sku', 'kode barang', 'upc', 'barcode']));
+      const qtyRaw = parseInt(f(['qty', 'quantity', 'jumlah']), 10);
+      const koliRaw = parseInt(f(['koli', 'no koli', 'koli ke']), 10);
+      if (so) { lastSO = so; lastKoli = 1; }
+      if (!isNaN(koliRaw)) lastKoli = koliRaw;
+      if (!code || !lastSO) return;
+      const m = findMatches(code)[0];
+      const sku = m ? m.ref : code;
+      const name = String(f(['produk name', 'product name', 'nama produk', 'produk', 'deskripsi'])).trim() || (m ? m.name : `PRODUK (${code})`);
+      const qty = isNaN(qtyRaw) || qtyRaw <= 0 ? 1 : qtyRaw;
+      if (!m && name && !name.startsWith('PRODUK (')) masterList.push({ ref: sku, sku: '', upc: '', name: name.toUpperCase(), uom: 'PCS', conv: 1 });
+      const ex = records.find(r => r.so === lastSO && r.koli === lastKoli && r.sku === sku);
+      if (ex) ex.qty += qty;
+      else records.push({ id: 'imp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), so: lastSO, koli: lastKoli, sku, productName: name, qty, printed: false, printedAt: null, createdAt: Date.now() });
+      n++;
+    });
+    if (lastSO) { activeSO = lastSO; activeKoli = 1; $('input-so').value = activeSO; $('input-koli').value = 1; }
+    save(); refreshUI(); playBeep('success'); toast(`Import ${n} baris berhasil`, 'success'); focusScanner();
+  });
+  ev.target.value = '';
+}
+
+function exportEndOfShiftExcel() {
+  if (!records.length) return toast('Belum ada data untuk di-export!', 'error');
+  const sorted = [...records].sort((a, b) => a.so !== b.so ? a.so.localeCompare(b.so) : a.koli - b.koli);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sorted.map(r => ({
+    SO: r.so, Ref: r.sku, 'Produk Name': r.productName, Qty: r.qty, Koli: r.koli,
+    'Status Label': r.printed ? 'Printed' : 'Draft', 'Waktu Cetak': r.printedAt || '-' }))), 'Package List');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(masterList.map(m => ({ UPC: m.upc, sku: m.sku, ref: m.ref, 'Product Name': m.name }))), 'Master SKU');
+  const name = `Package_List_Shift_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, name); playBeep('print'); toast(`"${name}" diunduh`, 'success');
+}
+
+/* ===================== MODALS, MASTER TABLE, TOAST ===================== */
+function openModal(id) { const e = $(id); e.classList.remove('hidden'); e.classList.add('flex'); if (id === 'modal-master') renderMasterTable();
+  if (id === 'modal-history') renderHistory(); }
+function closeModal(id) { const e = $(id); e.classList.add('hidden'); e.classList.remove('flex'); focusScanner(); }
+function renderMasterTable() {
+  const q = $('search-master-input').value.trim().toLowerCase();
+  const rows = masterList.map((m, i) => ({ m, i })).filter(({ m }) => [m.ref, m.upc, m.sku, m.name].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 300);
+  $('master-sku-tbody').innerHTML = rows.length ? rows.map(({ m, i }) => `<tr class="hover:bg-slate-50">
+    <td class="py-1.5 px-3 font-mono font-bold">${esc(m.ref)}</td><td class="py-1.5 px-3 font-mono">${esc(m.upc || '-')}</td>
+    <td class="py-1.5 px-3 font-mono text-slate-500">${esc(m.sku || '-')}</td><td class="py-1.5 px-3">${esc(m.name)}</td>
+    <td class="py-1.5 px-3 text-center"><button onclick="deleteMaster(${i})" class="text-rose-500 hover:text-rose-700 font-bold">✕</button></td></tr>`).join('')
+    : '<tr><td colspan="5" class="py-6 text-center text-slate-400">Master kosong / tidak ditemukan. Upload file Excel di atas.</td></tr>';
+  if (masterList.length > 300 && !q) $('master-sku-tbody').insertAdjacentHTML('beforeend', `<tr><td colspan="5" class="py-2 text-center text-slate-400">Menampilkan 300 dari ${masterList.length} — gunakan pencarian.</td></tr>`);
+}
+function addMasterManual(e) {
+  e.preventDefault();
+  const ref = norm($('nm-ref').value), upc = norm($('nm-upc').value), sku = norm($('nm-sku').value), name = $('nm-name').value.trim().toUpperCase();
+  if (!ref || !name) return;
+  const i = masterList.findIndex(m => m.ref === ref && m.upc === upc);
+  const entry = { ref, sku, upc, name, uom: 'PCS', conv: 1 };
+  if (i > -1) masterList[i] = entry; else masterList.push(entry);
+  ['nm-ref', 'nm-upc', 'nm-sku', 'nm-name'].forEach(id => $(id).value = '');
+  save(); renderMasterTable(); refreshUI(); toast(`Master ${ref} disimpan`, 'success');
+}
+function deleteMaster(i) { masterList.splice(i, 1); save(); renderMasterTable(); refreshUI(); }
+function confirmResetShiftData() {
+  const ts = Date.now(); archiveList.push(...records.map(r => ({ ...r, archived: true, archivedAt: ts }))); records = [];
+  activeSO = ''; activeKoli = 1; lastAction = null;
+  $('input-so').value = ''; $('input-koli').value = 1; $('last-scan').classList.add('hidden');
+  save(); refreshUI(); closeModal('modal-reset'); toast('Data shift di-reset.', 'info'); $('input-so').focus();
+}
+
+/* ===================== RIWAYAT ===================== */
+let histGroups = [];
+const fmtTs = t => t ? new Date(t).toLocaleString('id-ID', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
+function historyGroups() {
+  const q = $('hist-q').value.trim().toUpperCase(), stF = $('hist-status').value, sc = $('hist-scope').value, dt = $('hist-date').value;
+  const src = [...records.map(r => ({ ...r, _a: 0 })), ...archiveList.map(r => ({ ...r, _a: 1 }))];
+  const g = {};
+  src.forEach(r => { const k = r.so + '||' + r.koli + '||' + r._a; (g[k] ??= { so: r.so, koli: r.koli, arch: r._a, items: [] }).items.push(r); });
+  return Object.values(g).map(x => {
+    x.pcs = x.items.reduce((n, r) => n + r.qty, 0);
+    x.allPrinted = x.items.every(r => r.printed);
+    x.ts = Math.max(...x.items.map(r => r.printedTs || r.createdAt || 0));
+    x.printCount = Math.max(...x.items.map(r => r.printCount || 0));
+    return x;
+  }).filter(x => (!q || x.so.includes(q) || x.items.some(r => r.sku.includes(q) || r.productName.toUpperCase().includes(q)))
+    && (!stF || (stF === 'printed') === x.allPrinted) && (!sc || (sc === 'arch') === !!x.arch)
+    && (!dt || (x.ts && new Date(x.ts).toLocaleDateString('sv-SE') === dt))).sort((a, b) => b.ts - a.ts);
+}
+function renderHistory() {
+  histGroups = historyGroups();
+  const sos = new Set(histGroups.map(x => x.so)).size, pcs = histGroups.reduce((n, x) => n + x.pcs, 0);
+  $('hist-summary').textContent = `${sos} SO • ${histGroups.length} koli • ${pcs} pcs` + (histGroups.length > 200 ? ' (menampilkan 200 terbaru, persempit pencarian)' : '');
+  $('hist-list').innerHTML = histGroups.length ? histGroups.slice(0, 200).map((x, i) => `
+    <details class="group"><summary class="cursor-pointer list-none px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-slate-50">
+      <span class="font-mono font-bold text-xs w-44 truncate">${esc(x.so)}</span>
+      <span class="font-mono font-extrabold text-xs bg-slate-900 text-amber-400 rounded px-2 py-0.5">Koli ${x.koli}</span>
+      <span class="text-[11px] text-slate-600 font-mono">${x.items.length} ref • ${x.pcs} pcs</span>
+      ${x.allPrinted ? `<span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">✓ Printed${x.printCount > 1 ? ' ×' + x.printCount : ''}</span>` : '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">Draft</span>'}
+      ${x.arch ? '<span class="text-[10px] px-2 py-0.5 rounded bg-slate-200 text-slate-600 font-bold">Arsip</span>' : ''}
+      <span class="text-[11px] text-slate-400 ml-auto">${fmtTs(x.ts)}</span>
+      <span class="flex gap-1"><button type="button" onclick="event.preventDefault();histOpen(${i},false)" class="px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-[11px] font-bold">Buka</button>
+      <button type="button" onclick="event.preventDefault();histOpen(${i},true)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold">🖨️ Cetak ulang</button></span>
+    </summary>
+    <div class="px-4 pb-3 pt-1 bg-slate-50"><table class="w-full text-[11px]"><tbody class="divide-y divide-slate-200">${x.items.map(r => `<tr><td class="py-1 pr-2 font-mono font-bold w-36">${esc(r.sku)}</td><td class="py-1">${esc(r.productName)}</td><td class="py-1 pl-2 text-right font-mono font-bold w-14">${r.qty}</td></tr>`).join('')}</tbody></table>
+    <div class="text-[10px] text-slate-400 mt-1">Input: ${fmtTs(Math.min(...x.items.map(r => r.createdAt || Infinity)) )} • Cetak terakhir: ${esc(x.items.find(r => r.printedAt)?.printedAt || '-')}</div></div>
+    </details>`).join('') : '<div class="py-12 text-center text-xs text-slate-400">Tidak ada riwayat yang cocok.</div>';
+}
+function histOpen(i, doPrint) {
+  const x = histGroups[i]; if (!x) return;
+  if (x.arch) {   // pulihkan koli arsip ke shift aktif
+    const ids = new Set(x.items.map(r => r.id));
+    archiveList.filter(r => ids.has(r.id)).forEach(r => { delete r.archived; delete r.archivedAt; records.push(r); });
+    archiveList = archiveList.filter(r => !ids.has(r.id));
+  }
+  activeSO = x.so; activeKoli = x.koli; $('input-so').value = activeSO; $('input-koli').value = activeKoli;
+  save(); refreshUI(); closeModal('modal-history');
+  if (doPrint) printActiveKoliLabel();
+}
+function exportHistory() {
+  const rows = historyGroups().flatMap(x => x.items.map(r => ({ SO: r.so, Koli: r.koli, Ref: r.sku, 'Produk Name': r.productName, Qty: r.qty,
+    Status: r.printed ? 'Printed' : 'Draft', 'Cetak ke': r.printCount || (r.printed ? 1 : 0), 'Waktu Input': fmtTs(r.createdAt), 'Waktu Cetak': r.printedAt || '-', Arsip: x.arch ? 'Ya' : 'Tidak' })));
+  if (!rows.length) return toast('Tidak ada data untuk di-export', 'error');
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Riwayat');
+  XLSX.writeFile(wb, `Riwayat_Koli_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+function toast(msg, type = 'info') {
+  const c = { success:'bg-white text-slate-900 border-slate-300 border-l-4 border-l-emerald-600', error:'bg-white text-rose-800 border-slate-300 border-l-4 border-l-rose-600', info:'bg-white text-slate-900 border-slate-300 border-l-4 border-l-blue-600' };
+  const t = document.createElement('div');
+  t.className = `pointer-events-auto px-4 py-2.5 rounded-lg border shadow-lg text-sm font-semibold transition-all ${c[type] || c.info}`;
+  t.textContent = msg; $('toast-container').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 2400);
+}
+window.onload = initApp;
+</script>
+
+<script type="module">
+/* =====================================================================
+   FIREBASE CONFIG  >>> ISI DI SINI (sekali saja, semua user otomatis pakai) <<<
+   Salin dari Firebase Console > Project settings > Your apps > Web app.
+   Catatan: apiKey Firebase Web bukan rahasia; pengamannya ada di Firestore Rules.
+   ===================================================================== */
+const FIREBASE_CONFIG = {
+apiKey: "AIzaSyDPbgc8PNp_1MnCvlDM6PK8BKlmsLZpiZY",
+  authDomain: "dashboard-93c29.firebaseapp.com",
+  databaseURL: "https://dashboard-93c29-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "dashboard-93c29",
+  storageBucket: "dashboard-93c29.firebasestorage.app",
+  messagingSenderId: "348052232602",
+  appId: "1:348052232602:web:4ad8e6440b080224fc0223",
+  measurementId: "G-M3N68WNE58"
+};
+/* ===================== FIREBASE SYNC (Firestore, offline-first) ===================== */
+const V = '10.14.1', G = `https://www.gstatic.com/firebasejs/${V}/`;
+const st = (t, c) => { const e = document.getElementById('cloud-status'); if (e) { e.textContent = t; e.className = c + ' font-medium cursor-pointer'; } };
+if (String(FIREBASE_CONFIG.apiKey).startsWith('ISI')) { st('● Lokal (Firebase belum diisi)', 'text-slate-400'); }
+else try {
+  const { initializeApp } = await import(G + 'firebase-app.js');
+  const { getAuth, signInAnonymously } = await import(G + 'firebase-auth.js');
+  const F = await import(G + 'firebase-firestore.js');
+  const app = initializeApp(FIREBASE_CONFIG);
+  let authErr = '';
+  try { await signInAnonymously(getAuth(app)); } catch (e) { authErr = e.code || String(e); console.warn('Anonymous auth:', authErr); toast('Login anonim gagal (' + authErr + ')' + (location.protocol === 'file:' ? ' — file dibuka via file://, buka lewat http(s)/localhost' : ' — aktifkan Authentication > Anonymous'), 'error'); }
+  const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+  await new Promise(r => { const t = setInterval(() => { if (window.__appReady) { clearInterval(t); r(); } }, 100); });
+
+  const key = r => JSON.stringify(r, Object.keys(r).sort());
+  const upsert = d => { const A = d.archived ? archiveList : records, B = d.archived ? records : archiveList;
+    const jb = B.findIndex(r => r.id === d.id); if (jb > -1) B.splice(jb, 1);
+    const i = A.findIndex(r => r.id === d.id); if (i > -1) A[i] = d; else A.push(d); };
+  const drop = id => [records, archiveList].forEach(a => { const i = a.findIndex(r => r.id === id); if (i > -1) a.splice(i, 1); });
+  const synced = new Map(); let first = true, timer = null, masterSig = null, pulling = false;
+  const sig = () => { const j = JSON.stringify(masterList); let h = 5381; for (let i = 0; i < j.length; i++) h = ((h << 5) + h + j.charCodeAt(i)) | 0; return masterList.length + ':' + h; };
+
+  /* --- Transaksi koli: 1 dokumen per baris item, realtime antar PC --- */
+  F.onSnapshot(F.collection(db, 'koli_records'), snap => {
+    st(snap.metadata.fromCache ? '● Offline (antrean sinkron)' : '● Cloud tersambung', snap.metadata.fromCache ? 'text-amber-400' : 'text-emerald-400');
+    let changed = false;
+    if (first && localStorage.getItem('wms_cloud_linked_v1')) {          // cloud = sumber kebenaran
+      const ids = new Set(snap.docs.map(d => d.id));
+      [records, archiveList].forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (!ids.has(a[i].id)) { a.splice(i, 1); changed = true; } });
+    }
+    snap.docChanges().forEach(ch => {
+      if (ch.doc.metadata.hasPendingWrites) return;                      // perubahan lokal sendiri
+      const id = ch.doc.id, d = ch.doc.data();
+      if (ch.type === 'removed') { drop(id); synced.delete(id); }
+      else { upsert(d); synced.set(id, key(d)); }
+      changed = true;
+    });
+    if (first) { localStorage.setItem('wms_cloud_linked_v1', '1'); first = false; masterSig = null; pullMaster(); push(); }
+    if (changed) { save(); refreshUI(); }
+  }, e => { console.error(e); st('● Cloud error: ' + (e.code || ''), 'text-rose-400'); });
+
+  async function push() {
+    const all = [...records, ...archiveList], cur = new Map(all.map(r => [r.id, key(r)])), ops = [];
+    cur.forEach((k, id) => { if (synced.get(id) !== k) ops.push(['set', id]); });
+    synced.forEach((k, id) => { if (!cur.has(id)) ops.push(['del', id]); });
+    for (let i = 0; i < ops.length; i += 400) {
+      const b = F.writeBatch(db);
+      ops.slice(i, i + 400).forEach(([t, id]) => {
+        const ref = F.doc(db, 'koli_records', id);
+        if (t === 'set') { b.set(ref, all.find(r => r.id === id)); synced.set(id, cur.get(id)); } else { b.delete(ref); synced.delete(id); }
+      });
+      b.commit().catch(e => { console.error(e); st('● Gagal kirim: ' + (e.code || ''), 'text-rose-400'); toast('Gagal kirim ke cloud: ' + (e.code || e.message), 'error'); });
+    }
+    if (masterSig !== null && sig() !== masterSig) pushMaster();
+  }
+
+  /* --- Master: dipecah per 400 item + meta versi (hemat read, cache lokal) --- */
+  const metaRef = F.doc(db, 'meta', 'master');
+  async function pullMaster() {
+    pulling = true;
+    try {
+      const m = await F.getDoc(metaRef);
+      if (!m.exists()) { masterSig = sig(); if (masterList.length) await pushMaster(); return; }
+      const v = String(m.data().version);
+      if (v !== localStorage.getItem('wms_master_ver')) {
+        const snap = await F.getDocs(F.collection(db, 'master_chunks'));
+        const list = []; snap.docs.sort((a, b) => a.id.localeCompare(b.id)).forEach(d => list.push(...d.data().items));
+        if (list.length) { masterList = list; localStorage.setItem('wms_master_ver', v); save(); refreshUI(); if ($('modal-master').classList.contains('flex')) renderMasterTable(); }
+      }
+      masterSig = sig();
+    } catch (e) { console.warn('pullMaster', e); masterSig = sig(); } finally { pulling = false; }
+  }
+  async function pushMaster() {
+    masterSig = sig();
+    const items = masterList.map(m => ({ ref: m.ref, sku: m.sku || '', upc: m.upc || '', name: m.name, uom: m.uom || 'PCS', conv: m.conv || 1 }));
+    let old = 0; try { old = (await F.getDoc(metaRef)).data()?.chunks || 0; } catch {}
+    const n = Math.ceil(items.length / 400), version = Date.now(), b = F.writeBatch(db);
+    for (let i = 0; i < n; i++) b.set(F.doc(db, 'master_chunks', 'c' + String(i).padStart(3, '0')), { items: items.slice(i * 400, i * 400 + 400) });
+    for (let i = n; i < old; i++) b.delete(F.doc(db, 'master_chunks', 'c' + String(i).padStart(3, '0')));
+    b.set(metaRef, { version, chunks: n, count: items.length });
+    await b.commit().then(() => { localStorage.setItem('wms_master_ver', String(version)); toast(`Master tersimpan ke cloud (${items.length})`, 'success'); })
+      .catch(e => { console.error(e); st('● Master gagal kirim: ' + (e.code || ''), 'text-rose-400'); });
+  }
+  window.cloudTest = async () => {
+    const t0 = Date.now();
+    try {
+      await Promise.race([F.setDoc(F.doc(db, 'meta', 'ping'), { t: t0 }), new Promise((_, rj) => setTimeout(() => rj({ code: 'timeout (offline / diblokir / Firestore belum dibuat)' }), 8000))]);
+      toast('Tes cloud OK: tulis ke Firestore berhasil (' + (Date.now() - t0) + ' ms)', 'success');
+    } catch (e) { toast('Tes cloud GAGAL: ' + (e.code || e.message) + (authErr ? ' | auth: ' + authErr : ''), 'error'); }
+  };
+  window.CloudSync = { schedule() { clearTimeout(timer); timer = setTimeout(push, 500); } };
+} catch (e) { console.error(e); st('● Lokal (Firebase gagal dimuat)', 'text-rose-400'); toast('Firebase gagal dimuat: ' + (e.code || e.message), 'error'); }
+</script>
+</body>
+</html>
