@@ -30,7 +30,7 @@ kbd{font:600 11px 'IBM Plex Mono',monospace;background:#EEF1F4;border:1px solid 
 }
 @media print{
   body > *:not(#print-root){display:none!important}
-  #print-root{display:block!important;width:var(--lw,94mm);margin:0;padding:0;background:#fff;color:#000}
+  #print-root{display:block!important;width:var(--lw,94mm);margin:var(--shifty,0mm) 0 0 var(--shiftx,0mm);padding:0;background:#fff;color:#000}
   #print-root .pg{break-after:page;page-break-after:always}
   #print-root .pg:last-child{break-after:auto;page-break-after:auto}
   html.rot90 #print-root, html.rot270 #print-root{width:var(--pgw)}
@@ -157,13 +157,7 @@ kbd{font:600 11px 'IBM Plex Mono',monospace;background:#EEF1F4;border:1px solid 
   <section class="card p-4">
     <div class="flex items-center justify-between mb-3">
       <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Preview Label Thermal</span>
-      <div class="flex gap-1">
-        <button type="button" id="btn-lay-land" onclick="setLabelSize('land')" title="10 x 7 cm (lebar x tinggi)" class="px-2 py-1 text-[11px] font-bold rounded">Landscape 10×7</button>
-        <button type="button" id="btn-lay-port" onclick="setLabelSize('port')" title="7 x 10 cm (lebar x tinggi)" class="px-2 py-1 text-[11px] font-bold rounded">Portrait 7×10</button>
-        <button type="button" onclick="presetZebra()" title="Portrait 7 x 10 cm, ukuran kertas dikirim dari aplikasi, tanpa rotasi" class="px-2 py-1 text-[11px] font-bold rounded bg-amber-500 text-slate-950 hover:bg-amber-400">⚡ Preset Zebra 7×10</button>
-        <button type="button" id="btn-rot" onclick="cycleRotate()" title="Putar isi label jika hasil cetak terbalik/miring dari driver Zebra" class="px-2 py-1 text-[11px] font-bold rounded">⟳ Putar: 0°</button>
-        <button type="button" id="btn-force" onclick="toggleForce()" title="Matikan agar ukuran kertas & orientasi ditentukan dialog print / driver Zebra" class="px-2 py-1 text-[11px] font-bold rounded bg-slate-200 text-slate-700 hover:bg-slate-300">Kertas: dikirim app</button>
-      </div>
+      <span class="text-xs text-slate-500">Portrait 8×10,5 cm, ukuran kertas dikunci dari aplikasi</span>
     </div>
     <div id="print-area" class="bg-slate-200/70 p-3 rounded-lg max-h-[560px] overflow-y-auto"></div>
   </section>
@@ -294,7 +288,7 @@ function initApp() {
   masterList = masterList.map(m => m.ref ? m : { ...m, ref: m.sku, sku: '' });
   archiveList = load('wms_archive_v1', []);
   const a = load(KEY.ACTIVE, {}); activeSO = a.activeSO || ''; activeKoli = a.activeKoli || 1;
-  const s = load(KEY.SET, {}); soundEnabled = s.soundEnabled !== false; labelSize = LAYOUTS[s.labelSize] ? s.labelSize : 'port'; forcePage = s.labelSize === 'auto' ? false : s.forcePage !== false; rotDeg = [0, 90, 270].includes(s.rotDeg) ? s.rotDeg : 0;
+  const s = load(KEY.SET, {}); soundEnabled = s.soundEnabled !== false; labelSize = 'port'; forcePage = true; rotDeg = 0;
   $('sound-icon').textContent = soundEnabled ? '🔊' : '🔇';
   $('input-so').value = activeSO; $('input-koli').value = activeKoli;
   setLabelSize(labelSize, false);
@@ -466,20 +460,19 @@ function setItemQtyDirect(id, v) {
 function deleteItem(id) { records = records.filter(r => r.id !== id); save(); refreshUI(); focusScanner(); }
 
 /* ===================== PRINT ===================== */
+/* Kalibrasi posisi cetak: geser isi label ke KANAN (mm). Naikkan jika sisi kiri masih terpotong,
+   turunkan jika sisi kanan terpotong. 0 = tanpa geser. */
+const PRINT_OFFSET_X_MM = 8;
+/* Ukuran stiker (mm). Ubah di sini jika label diganti ukuran. */
+const STOCK_W_MM = 80, STOCK_H_MM = 105;
+/* Margin tambahan isi label (mm), di luar margin dasar 2mm. Naikkan sisi yang masih mepet / terpotong. */
+const MARGIN_LEFT_MM = 10, MARGIN_TOP_MM = 10, MARGIN_RIGHT_MM = 0, MARGIN_BOTTOM_MM = 0;
 const LAYOUTS = {
   land: { w: 96, h: 66, page: 'size:100mm 70mm;margin:2mm', pageRot: 'size:70mm 100mm;margin:2mm' },
-  port: { w: 66, h: 96, page: 'size:70mm 100mm;margin:2mm', pageRot: 'size:100mm 70mm;margin:2mm' }
+  port: { w: STOCK_W_MM - 4 - MARGIN_LEFT_MM - MARGIN_RIGHT_MM, h: STOCK_H_MM - 4 - MARGIN_TOP_MM - MARGIN_BOTTOM_MM, page: `size:${STOCK_W_MM + PRINT_OFFSET_X_MM}mm ${STOCK_H_MM}mm;margin:2mm`, pageRot: `size:${STOCK_H_MM}mm ${STOCK_W_MM}mm;margin:2mm` }
 };
 let LAY = LAYOUTS.port, rotDeg = 0, forcePage = true;
-function presetZebra() { rotDeg = 0; forcePage = true; setLabelSize('port'); toast('Preset: portrait 7×10 cm, ukuran kertas dikirim dari aplikasi', 'info'); focusScanner(); }
-function toggleForce() { forcePage = !forcePage; applyPageStyle(); save(); toast(forcePage ? 'Ukuran kertas dikirim dari aplikasi' : 'Ukuran kertas & orientasi: atur di dialog print / driver', 'info'); focusScanner(); }
-function cycleRotate() { rotDeg = rotDeg === 0 ? 90 : rotDeg === 90 ? 270 : 0; applyPageStyle(); save(); toast(`Putar isi label: ${rotDeg}° (cek preview di dialog print)`, 'info'); focusScanner(); }
-function setLabelSize(size, doSave = true) {
-  labelSize = LAYOUTS[size] ? size : 'land'; LAY = LAYOUTS[labelSize]; applyPageStyle();
-  const on = 'px-2 py-1 text-[11px] font-bold rounded bg-slate-900 text-white', off = 'px-2 py-1 text-[11px] font-bold rounded bg-slate-200 text-slate-700 hover:bg-slate-300';
-  ['land', 'port'].forEach(k => $('btn-lay-' + k).className = k === labelSize ? on : off);
-  if (doSave) { save(); refreshUI(); }
-}
+function setLabelSize() { LAY = LAYOUTS.port; applyPageStyle(); }   // tetap portrait; ukuran kertas mengikuti printer
 /* 1 koli = 1 label = 1 halaman: ukuran kertas diset sesuai label & isi otomatis diperkecil bila panjang */
 function applyPageStyle() {
   let st = $('page-style');
@@ -488,6 +481,7 @@ function applyPageStyle() {
   if ($('btn-force')) $('btn-force').textContent = forcePage ? 'Kertas: dikirim app' : 'Kertas: ikut dialog/driver';
   const root = document.documentElement;
   root.classList.remove('rot90', 'rot270'); if (rotDeg) root.classList.add('rot' + rotDeg);
+  root.style.setProperty('--shiftx', (PRINT_OFFSET_X_MM + MARGIN_LEFT_MM) + 'mm'); root.style.setProperty('--shifty', MARGIN_TOP_MM + 'mm');
   root.style.setProperty('--lw', LAY.w + 'mm'); root.style.setProperty('--lh', (LAY.h - 1) + 'mm');
   root.style.setProperty('--pgw', LAY.h + 'mm'); root.style.setProperty('--pgh', LAY.w + 'mm');
   root.style.setProperty('--rx', LAY.h + 'mm'); root.style.setProperty('--ry', LAY.w + 'mm');
@@ -820,7 +814,7 @@ window.onload = initApp;
    Catatan: apiKey Firebase Web bukan rahasia; pengamannya ada di Firestore Rules.
    ===================================================================== */
 const FIREBASE_CONFIG = {
-apiKey: "AIzaSyDPbgc8PNp_1MnCvlDM6PK8BKlmsLZpiZY",
+  apiKey: "AIzaSyDPbgc8PNp_1MnCvlDM6PK8BKlmsLZpiZY",
   authDomain: "dashboard-93c29.firebaseapp.com",
   databaseURL: "https://dashboard-93c29-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "dashboard-93c29",
